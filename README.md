@@ -8,7 +8,7 @@ Step 2: Close R studio (if open) and then open the "Setup" RMD file and run each
 
 * Main/
   * GitHub/
-     * Pre-process
+     * Pre-processing
      * Analysis
      * Figures
   * IRI dataset/
@@ -38,7 +38,7 @@ Final file architecture needs to look like this for the code to work.
 
 * Main/
   * GitHub/
-     * Pre-process
+     * Pre-processing
      * Analysis
      * Figures
   * IRI dataset/
