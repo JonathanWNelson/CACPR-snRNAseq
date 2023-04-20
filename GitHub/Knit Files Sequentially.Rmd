@@ -1,0 +1,73 @@
+---
+title: "Knit Files Sequentially"
+author: "Jonathan Nelson"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+```{r load new packages, echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!require("here")) {install.packages("here"); require("here")}
+here::here()
+
+```
+
+# Pre-Processing Files
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Pre-Processing", "1 Sham_Ambient RNA and Doublet Removal.Rmd"))
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Pre-Processing", "2 CACPR_Ambient RNA and Doublet Removal.Rmd"))
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Pre-Processing", "3 Sham_CACPR_Merging and Integration.Rmd"))
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Pre-Processing", "4 IRI_Merging and Integration.Rmd"))
+rm(list = ls())
+
+```
+# Analysis Files
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Analysis", "1 CACPR and IRI Cluster DEGs.Rmd"))
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Analysis", "2 CACPR and IRI Condition DEGs.Rmd"))
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Analysis", "3 CACPR and IRI Cluster DEG Correlation.Rmd"))
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Analysis", "4 CACPR and IRI Condition DEG Correlation.Rmd"))
+rm(list = ls())
+rmarkdown::render(here("GitHub", "Analysis", "5 GSEA Analysis.Rmd"))
+rm(list = ls())
+
+
+```
+
+# Figure Files
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+
+
+```
+
+
+
+# Session Info
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+sessionInfo()
+```

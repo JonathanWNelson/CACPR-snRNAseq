@@ -1,0 +1,75 @@
+---
+title: "Here and File Architecture Setup"
+author: "Jonathan Nelson and Annie Lackey"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load new packages, echo=FALSE, warning=FALSE, error=FALSE, message=FALSE}
+
+if (!require("here")) {install.packages("here"); require("here")}
+```
+
+
+# Create .here file to orient files to relative directory
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+here::set_here()
+
+#Check where here directory
+here()
+
+```
+
+# Setup file architecture
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+#Setup file architecture to place files from GEO and have output folder
+
+GEO <- "GEO"
+CellRanger <-"Cell Ranger"
+Sham <- "Sham"
+CACPR <- "CACPR"
+Outputs <- "Outputs"
+IRIdataset <- "IRI dataset"
+
+#Create Outputs Folder
+if (!dir.exists(here(Outputs))) {dir.create(here(Outputs))}
+
+#Create Folders for IRI Dataset
+if (!dir.exists(here(IRIdataset))) {dir.create(here(IRIdataset))}
+
+#Create Folders for CACPR and SHAM GEO Datasets
+if (!dir.exists(here(GEO))) {dir.create(here(GEO))}
+if (!dir.exists(here("GEO", CellRanger))) {dir.create(here("GEO", CellRanger))}
+if (!dir.exists(here("GEO", "CellRanger", Sham))) {dir.create(here("GEO", "Cell Ranger", Sham))}
+if (!dir.exists(here("GEO", "CellRanger", CACPR))) {dir.create(here("GEO", "Cell Ranger", CACPR))}
+
+rm(list = ls())
+
+```
+
+
+# Subset PT and Re-Cluster
+## Session Info
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+sessionInfo()
+```
+
+
+  

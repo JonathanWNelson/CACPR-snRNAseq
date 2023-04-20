@@ -1,0 +1,272 @@
+---
+title: "IRI and CACPR Cluster Defining DEGs"
+author: "Jonathan Nelson and Annie Lackey"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load new packages, echo=FALSE, warning=FALSE, error=FALSE, message=FALSE}
+
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("Seurat")) {install.packages("Seurat"); require("Seurat")}
+if (!require("patchwork")) {install.packages("patchwork"); require("patchwork")}
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("BiocManager")) {install.packages("BiocManager"); require("BiocManager")}
+if (!require("tibble")) {install.packages("tibble"); require("tibble")}
+if (!require("ggpmisc")) {install.packages("ggpmisc"); require("ggpmisc")}
+if (!require("RColorBrewer")) {install.packages("RColorBrewer"); require("RColorBrewer")} #color
+if (!require("ggrepel")) {install.packages("ggrepel"); require("ggrepel")}
+if (!require("DESeq2")) {BiocManager::install('DESeq2'); require("DESeq2")}
+if (!require("here")) {install.packages("here"); require("here")}
+if (!require("stringr")) {install.packages("stringr"); require("stringr")}
+if (!require("car")) {install.packages("car"); require("car")}
+if (!require("openxlsx")) {install.packages("openxlsx"); require("openxlsx")}
+if (!require("readxl")) {install.packages("readxl"); require("readxl")}
+if (!require("data.table")) {install.packages("data.table"); require("data.table")}
+
+
+```
+
+
+# Load CACPR Dataset
+```{r load data, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+CACPRintegrated <- readRDS(here("Outputs", "CACPR_Combined_Named.rds"))
+DefaultAssay(CACPRintegrated) <- "RNA"
+DimPlot(CACPRintegrated, reduction = "umap")
+
+table(Idents(CACPRintegrated))
+prop.table(table(Idents(CACPRintegrated)))
+
+```
+
+
+# Subset PT and Re-Cluster
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+head(CACPRintegrated@meta.data)
+
+CACPRintegrated_PT <- subset(CACPRintegrated, CellType == "PT")
+
+DimPlot(CACPRintegrated_PT, reduction = "umap")
+
+CACPRintegrated_PT <- FindVariableFeatures(CACPRintegrated_PT, selection.method = "vst", nfeatures = 2000)
+
+top10 <- head(VariableFeatures(CACPRintegrated_PT), 10)
+
+plot1 <- VariableFeaturePlot(CACPRintegrated_PT)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot2
+
+all.genes <- rownames(CACPRintegrated_PT)
+CACPRintegrated_PT <- ScaleData(CACPRintegrated_PT, features = all.genes)
+
+CACPRintegrated_PT <- RunPCA(CACPRintegrated_PT, features = VariableFeatures(object = CACPRintegrated_PT))
+
+print(CACPRintegrated_PT[["pca"]], dims = 1:5, nfeatures = 5)
+
+VizDimLoadings(CACPRintegrated_PT, dims = 1:2, reduction = "pca")
+
+DimPlot(CACPRintegrated_PT, reduction = "pca")
+
+DimHeatmap(CACPRintegrated_PT, dims = 1:2, cells = 500, balanced = TRUE)
+
+ElbowPlot(CACPRintegrated_PT)
+
+CACPRintegrated_PT <- FindNeighbors(CACPRintegrated_PT, dims = 1:10)
+CACPRintegrated_PT <- FindClusters(CACPRintegrated_PT, resolution = 0.15)
+
+CACPRintegrated_PT <- RunUMAP(CACPRintegrated_PT, dims = 1:20)
+
+DimPlot(CACPRintegrated_PT, reduction = "umap")
+DimPlot(CACPRintegrated_PT, reduction = "umap", group.by = "Condition")
+
+CACPRintegrated_PT.list <- SplitObject(CACPRintegrated_PT, split.by = "Condition")
+
+CACPRintegrated_PT.list <- lapply(X = CACPRintegrated_PT.list, FUN = function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(x, verbose = FALSE)
+})
+
+features <- SelectIntegrationFeatures(object.list = CACPRintegrated_PT.list)
+CACPRintegrated_PT.list <- lapply(X = CACPRintegrated_PT.list, FUN = function(x) {
+  x <- ScaleData(x, features = features, verbose = FALSE)
+  x <- RunPCA(x, features = features, verbose = FALSE)
+})
+
+anchors <- FindIntegrationAnchors(object.list = CACPRintegrated_PT.list, reference = c(1, 2), reduction = "rpca", dims = 1:10)
+CACPRintegrated_PT <- IntegrateData(anchorset = anchors, dims = 1:10)
+
+CACPRintegrated_PT <- ScaleData(CACPRintegrated_PT, verbose = FALSE)
+CACPRintegrated_PT <- RunPCA(CACPRintegrated_PT, verbose = FALSE)
+CACPRintegrated_PT <- RunUMAP(CACPRintegrated_PT, dims = 1:10)
+
+CACPRintegrated_PT <- FindNeighbors(CACPRintegrated_PT, reduction = "pca", dims = 1:10)
+CACPRintegrated_PT <- FindClusters(CACPRintegrated_PT, resolution = 0.15)
+
+DimPlot(CACPRintegrated_PT, reduction = "umap", label = T)
+DimPlot(CACPRintegrated_PT, reduction = "umap", group.by = "Condition")
+DimPlot(CACPRintegrated_PT, reduction = "umap", split.by = "Condition")
+
+table(Idents(CACPRintegrated_PT))
+
+table(Idents(CACPRintegrated_PT), CACPRintegrated_PT$Condition)
+
+DefaultAssay(CACPRintegrated_PT) <- "RNA"
+
+FeaturePlot(CACPRintegrated_PT, "Havcr1", split.by = "Condition")
+
+DimPlot(CACPRintegrated_PT, reduction = "umap", label = T)
+DimPlot(CACPRintegrated_PT, reduction = "umap", group.by = "Condition")
+
+
+markers.to.plot1 <- c("Lrp2",         # Pan PT
+                      "Slc5a12",
+                      "Slc13a3",
+                      "Slc16a9",
+                      "percent.mt")
+        
+                            
+VlnPlot(CACPRintegrated_PT, 
+        features = markers.to.plot1,
+        stack = TRUE,
+        fill.by = "ident",
+        flip = T,
+              )
+
+table(Idents(CACPRintegrated_PT), CACPRintegrated_PT$Condition)
+prop.table(table(Idents(CACPRintegrated_PT), CACPRintegrated_PT$Condition))
+
+
+```
+
+
+
+
+
+CellTypeList <- unlist(levels(CACPRintegrated@meta.data$CellType))
+
+for(i in 1:length(CellTypeList)){
+  
+DEGs <- FindMarkers(CACPRintegrated, ident.1 = CellTypeList[i])
+
+DEGs <- DEGs %>%
+  filter(p_val_adj < 0.05) %>%
+  rownames_to_column(var="gene")
+
+DEGs = DEGs[order(DEGs[,"avg_log2FC"], decreasing = TRUE),]
+
+assign(paste("CACPRintegrated", CellTypeList[i], sep = "."), DEGs, envir = globalenv())
+
+print(paste("CACPR", CellTypeList[i], "Up"))
+top25 <- head(DEGs, 25)
+print(top25)
+
+top3 <- head(DEGs$gene, 3)
+
+for (j in top3) {
+  B <- VlnPlot(CACPRintegrated, j) + labs(title= j) + xlab(element_blank())
+  print(B)
+  }
+
+}
+
+#remove objects so that entire environment is only DEG lists to save
+
+rm(DEGs, CACPRintegrated, i, CellTypeList, top3, top25, j, B)
+
+save.image(file = here("GEO", "Outputs", "CACPR Cluster Defining DEGs.RData"))
+
+allobj <- ls()
+alldf <- sapply(allobj, get, simplify = FALSE)
+alldf <- alldf[sapply(alldf, inherits, "data.frame")]
+
+write.xlsx(alldf, sheetName = names(alldf), file = here("GEO", "Outputs", "CACPR Cluster Defining DEGs.xlsx"))
+
+rm(list = ls())
+```
+
+
+# Load IRI Dataset
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+IRIintegrated <- readRDS(here("GEO", "Outputs", "IRI_Combined_Named.rds"))
+DefaultAssay(IRIintegrated) <- "RNA"
+DimPlot(IRIintegrated, reduction = "umap")
+
+table(Idents(IRIintegrated))
+prop.table(table(Idents(IRIintegrated)))
+        
+```
+
+
+# DEG Markers for IRI DAtaset
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+CellTypeList <- unlist(levels(IRIintegrated@meta.data$CellType))
+
+for(i in 1:length(CellTypeList)){
+
+DEGs <- FindMarkers(IRIintegrated, ident.1 = CellTypeList[i])  
+
+DEGs <- DEGs %>%
+  filter(p_val_adj < 0.05) %>%
+  rownames_to_column(var="gene")
+
+DEGs = DEGs[order(DEGs[,"avg_log2FC"], decreasing = TRUE),]
+
+assign(paste("IRIintegrated", CellTypeList[i], sep = "."), DEGs, envir = globalenv())
+
+print(paste("IRI", CellTypeList[i], "Up"))
+
+print(paste("IRIintegrated", CellTypeList[i], "Up"))
+top25 <- head(DEGs, 25)
+print(top25)
+
+top3 <- head(DEGs$gene, 3)
+
+for (j in top3) {
+  B <- VlnPlot(IRIintegrated, j) + labs(title= j) + xlab(element_blank())
+  print(B)
+}
+
+assign(paste("IRIintegrated", CellTypeList[i], sep = "."), DEGs, envir = globalenv())
+
+}
+
+#remove objects so that entire environment is only DEG lists to save
+rm(DEGs, IRIintegrated, i, CellTypeList, top3, top25, j, B)
+
+save.image(file = here("GEO", "Outputs", "IRI Cluster Defining DEGs.RData"))
+
+allobj <- ls()
+alldf <- sapply(allobj, get, simplify = FALSE)
+alldf <- alldf[sapply(alldf, inherits, "data.frame")]
+
+write.xlsx(alldf, sheetName = names(alldf), file = here("GEO", "Outputs", "IRI Cluster Defining DEGs.xlsx"))
+
+```
+
+## Session Info
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+sessionInfo()
+```
+
+
+  

@@ -1,0 +1,325 @@
+---
+title: "Figure 2"
+author: "Jonathan Nelson and Annie Lackey"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+
+
+```{r setup, include = FALSE}
+r <- getOption("repos"); r["CRAN"] <- "http://lib.stat.cmu.edu/R/CRAN/"
+options(repos = r)
+
+```
+
+```{r load new packages, echo=FALSE, warning=FALSE, error=FALSE, message=FALSE}
+
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("Seurat")) {install.packages("Seurat"); require("Seurat")}
+if (!require("patchwork")) {install.packages("patchwork"); require("patchwork")}
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("BiocManager")) {install.packages("BiocManager"); require("BiocManager")}
+if (!require("tibble")) {install.packages("tibble"); require("tibble")}
+if (!require("ggpmisc")) {install.packages("ggpmisc"); require("ggpmisc")}
+if (!require("RColorBrewer")) {install.packages("RColorBrewer"); require("RColorBrewer")} #color
+if (!require("ggrepel")) {install.packages("ggrepel"); require("ggrepel")}
+if (!require("DESeq2")) {BiocManager::install('DESeq2'); require("DESeq2")}
+if (!require("here")) {install.packages("here"); require("here")}
+if (!require("EnhancedVolcano")) {BiocManager::install('EnhancedVolcano'); require("EnhancedVolcano")} # volcano plot
+if (!require("tidyverse")) {install.packages("tidyverse"); require("tidyverse")}
+
+
+```
+
+# Load Data
+```{r load data, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+CACPRintegrated <- readRDS(here("Outputs", "CACPR_Combined_Named.rds"))
+DefaultAssay(CACPRintegrated) <- "RNA"
+```
+
+# Figure 1A
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+DimPlot(CACPRintegrated, reduction = "umap")
+
+```
+# Figure 1B
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+markers.to.plot1 <- c("Lrp2",         # Pan PT
+                      "Epha7",        # DTL
+                      "Slc12a1",      # TAL
+                      "Slc12a3",      # DCT
+                      "Aqp2",         # PC
+                      "Kit",          # IC
+                      "Nphs2",       # Podo
+                      "Flt1",         # EC
+                      "Pdgfrb",       # Mesenchymal
+                      "Fyb")          # Immune Macrophages
+
+DotPlot(CACPRintegrated, features = markers.to.plot1, dot.scale = 8, cols = c("dodgerblue2", "coral2")) +  RotatedAxis() + xlab(label = "") + ylab(label = "") 
+```
+# Figure 1B alt
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+markers.to.plot1 <- c("Lrp2",         # Pan PT
+                      "Slc5a12",
+                      "Slc13a3",
+                      "Slc16a9",
+                      "Epha7",        # DTL
+                      "Slc12a1",      # TAL
+                      "Slc12a3",      # DCT
+                      "Aqp2",         # PC
+                      "Kit",          # IC
+                      "Nphs2",       # Podo
+                      "Flt1",         # EC
+                      "Pdgfrb",       # Mesenchymal
+                      "Fyb")          # Immune Macrophages
+
+DotPlot(CACPRintegrated, features = markers.to.plot1, dot.scale = 8, cols = c("dodgerblue2", "coral2")) +  RotatedAxis() + xlab(label = "") + ylab(label = "") 
+
+```
+
+
+# Figure 1C
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+DimPlot(CACPRintegrated, reduction = "umap", group.by = "Condition")
+
+```
+# Figure 1D
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+SO <-CACPRintegrated
+
+t1 <- table(Idents(SO), SO$Condition)[, c("Sham", "CACPR")]
+t1
+
+prop.t1 <- prop.table(t1, margin = 2)
+prop.t1
+
+t2 <- as.data.frame(t1)
+t2
+
+colnames(t2) <- c('Cell_type', 'Rep', 'Cell_number')
+t2
+
+t3 <- t2 %>%
+  pivot_wider(names_from = Cell_type, values_from = Cell_number)
+t3
+
+t4 <- t3 %>% 
+  add_column(Condition = c("Sham", "CACPR"))
+t4
+
+t5 <- t4 %>%
+  pivot_longer(c("PT", "DTL", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune"), names_to ="Cell_type", values_to = "Cell_number")
+t5
+
+t6 <- t2 %>% 
+  pivot_wider(names_from = Cell_type, values_from = Cell_number) %>%
+  add_column(Condition = c("Sham", "CACPR")) %>%
+  pivot_longer(c("PT", "DTL", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune"), names_to ="Cell_type", values_to = "Cell_number")
+
+t5 %>%
+  arrange(Cell_number) %>%
+  mutate(Cell_type = factor(Cell_type, levels=c("PT", "DTL", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune"))) %>%
+ggplot(
+       aes(x=Rep,
+           y=Cell_number,
+           fill=Cell_type)) +     
+  geom_bar(position = "fill",
+           stat = "identity",
+           colour="black") +
+  theme_classic() +
+  ggtitle("Cell type distribution per sample")
+
+```
+
+# Figure 1E
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+markers.to.plotTreatmentUp.CACPR <- c("Plin2", "Pdk4", "Lcn2", "Spp1", "Vmp1", "Ctsd", "Grem2", "Clu", "Gm42031", "Itgav", "Mt1", "Mt2", "Hsp90aa1", "Igfbp3", "Tnc", "Abi1", "Rgs1", "S100a11")
+
+DotPlot(CACPRintegrated, features = markers.to.plotTreatmentUp.CACPR, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "Condition") +  RotatedAxis() + xlab(label = "") + ylab(label = "CACPR Enriched") 
+
+```
+
+
+# Figure 1E
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+markers.to.plotTreatmentDown.CACPR <- c("Sugct", "Hnf4aos", "Egf", "Abca13", "Klhl3", "Wnk1", "Rhcg", "Apela", "Tmem117", "Slc16a7", "Gm26917", "Opcml", "Samd12", "Chrm3", "Abca8a", "Stim1", "Rbpj", "Fut9")
+
+DotPlot(CACPRintegrated, features = markers.to.plotTreatmentDown.CACPR, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "Condition") +  RotatedAxis() + xlab(label = "") + ylab(label = "CACPR Depleted") 
+
+```
+
+
+
+
+
+
+markers.to.plotTreatmentUp.IRI <- c("Neat1", "Col18a1", "Spp1", "Cdh9", "Rtn4", "Cep85", "Adk", "Efna5", "Pkhd1", "Atxn1", "Pde10a", "Sdc4", "Malat1", "Fkbp5", "Abi1", "Tnc", "Mt1", "Fth1")
+
+markers.to.plotTreatmentDown.IRI <- c("Slc34a1", "Keg1","Egf", "Slc12a1", "Wnk1", "Abca13", "Col4a3", "Ranbp3l", "Tmem117", "Pde4b", "Pcthd4", "H2-Q7", "Rora", "Tmtc1", "Lbd2", "Arhgap24", "H2-K1", "Cd74" )
+
+DotPlot(CACPRintegrated, features = markers.to.plotTreatmentUp.IRI, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "Condition") +  RotatedAxis() + xlab(label = "") + ylab(label = "IRI Enriched") 
+
+
+markers.to.plotTreatmentDown.CACPR <- c("Sugct", "Hnf4aos", "Egf", "Abca13", "Klhl3", "Wnk1", "Rhcg", "Apela", "Tmem117", "Slc16a7", "Gm26917", "Opcml", "Samd12", "Chrm3", "Abca8a", "Stim1", "Rbpj", "Fut9")
+
+DotPlot(CACPRintegrated, features = markers.to.plotTreatmentDown.IRI, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "Condition") +  RotatedAxis() + xlab(label = "") + ylab(label = "IRI Depleted") 
+
+
+
+```
+
+
+
+#IRI
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+
+DimPlot(IRIintegrated, reduction = "umap", label = T)
+DimPlot(IRIintegrated, reduction = "umap", group.by = "treatment")
+DimPlot(IRIintegrated, reduction = "umap", split.by = "treatment")
+
+markers.to.plot1 <- c("Lrp2",         # Pan PT
+                      "Slc5a12",
+                      "Slc13a3",
+                      "Slc16a9",
+                      "Epha7",        # DTL
+                      "Slc12a1",      # TAL
+                      "Slc12a3",      # Pan DCT
+                      "Slc8a1",       # DCT2
+                      "Scnn1g",       # CNT
+                      "Aqp2",         # PC
+                      "Kit",          # IC-A
+                      "Slc26a4",      # IC-B
+                      "Nphs2",        # Pod
+                      "Flt1",         # EC
+                      "Pdgfrb",       # Mesenchymal
+                      "Fyb")          # Immune Macrophages
+
+VlnPlot(IRIintegrated, 
+        features = markers.to.plot1,
+        stack = TRUE,
+        fill.by = "ident",
+        flip = T,
+              )
+
+DotPlot(IRIintegrated, features = markers.to.plot1, dot.scale = 8, cols = c("dodgerblue2", "coral2")) +  RotatedAxis() + xlab(label = "") + ylab(label = "") 
+
+SO <-IRIintegrated
+
+t1 <- table(Idents(SO), SO$treatment)[, c("Control", "TwelveHour")]
+t1
+
+prop.t1 <- prop.table(t1, margin = 2)
+prop.t1
+
+t2 <- as.data.frame(t1)
+t2
+
+colnames(t2) <- c('Cell_type', 'Rep', 'Cell_number')
+t2
+
+t3 <- t2 %>%
+  pivot_wider(names_from = Cell_type, values_from = Cell_number)
+t3
+
+t4 <- t3 %>% 
+  add_column(Condition = c("Control", "TwelveHour"))
+t4
+
+t5 <- t4 %>%
+  pivot_longer(c("PT", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune"), names_to ="Cell_type", values_to = "Cell_number")
+t5
+
+t6 <- t2 %>% 
+  pivot_wider(names_from = Cell_type, values_from = Cell_number) %>%
+  add_column(Condition = c("Control", "TwelveHour")) %>%
+  pivot_longer(c("PT", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune"), names_to ="Cell_type", values_to = "Cell_number")
+
+t5 %>%
+  arrange(Cell_number) %>%
+  mutate(Cell_type = factor(Cell_type, levels=c("PT", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune"))) %>%
+ggplot(
+       aes(x=Rep,
+           y=Cell_number,
+           fill=Cell_type)) +     
+  geom_bar(position = "fill",
+           stat = "identity",
+           colour="black") +
+  theme_classic() +
+  ggtitle("Cell type distribution per sample")
+
+DotPlot(IRIintegrated, features = markers.to.plotTreatmentUp.IRI, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "treatment") +  RotatedAxis() + xlab(label = "") + ylab(label = "IRI Enriched") 
+
+DotPlot(IRIintegrated, features = markers.to.plotTreatmentDown.IRI, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "treatment") +  RotatedAxis() + xlab(label = "") + ylab(label = "IRI Depleted") 
+
+DotPlot(IRIintegrated, features = markers.to.plotTreatmentUp.CACPR, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "treatment") +  RotatedAxis() + xlab(label = "") + ylab(label = "CACPR Enriched") 
+
+DotPlot(IRIintegrated, features = markers.to.plotTreatmentDown.CACPR, dot.scale = 8, cols = c("dodgerblue2", "coral2"), split.by = "treatment") +  RotatedAxis() + xlab(label = "") + ylab(label = "CACPR Depleted") 
+
+
+```
+
+#Highlight PT cluster
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+
+DimPlot(CACPRintegrated, split.by= "Condition" , cells.highlight=WhichCells(CACPRintegrated, idents = c("PT")), cols.highlight = c("#FF575B"), cols= "grey")
+
+DimPlot(CACPRintegrated, cells.highlight=WhichCells(CACPRintegrated, idents = c("PT")), cols.highlight = c("#FF575B"), cols= "grey") +
+  ggtitle("CACPR") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+DimPlot(IRIintegrated, split.by="treatment", cells.highlight=WhichCells(IRIintegrated, idents = c("PT")), cols.highlight = c("#FF575B"), cols= "grey")
+
+DimPlot(IRIintegrated, cells.highlight=WhichCells(IRIintegrated, idents = c("PT")), cols.highlight = c("#FF575B"), cols= "grey")+
+  ggtitle("IRI") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+VlnPlot(CACPRintegrated, "Havcr1", split.by =  "Condition")
+
+VlnPlot(IRIintegrated, "Havcr1", split.by =  "treatment")
+
+VlnPlot(CACPRintegrated, "Slc34a1", split.by =  "Condition")
+
+VlnPlot(IRIintegrated, "Slc34a1", split.by =  "treatment")
+
+VlnPlot(CACPRintegrated, "Ehhadh", split.by =  "Condition")
+
+VlnPlot(IRIintegrated, "Ehhadh", split.by =  "treatment")
+
+
+
+
+```
+
+
+
+## Session Info
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+sessionInfo()
+```
+
+
+

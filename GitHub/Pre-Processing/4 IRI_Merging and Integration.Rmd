@@ -1,0 +1,237 @@
+---
+title: "Humpheys IRI Dataset Analysis"
+author: "Jonathan Nelson"
+date: '2022-06-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load new packages, echo=FALSE, warning=FALSE, error=FALSE, message=FALSE}
+
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("Seurat")) {install.packages("Seurat"); require("Seurat")}
+if (!require("patchwork")) {install.packages("patchwork"); require("patchwork")}
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("BiocManager")) {install.packages("BiocManager"); require("BiocManager")}
+if (!require("EnhancedVolcano")) {install.packages("EnhancedVolcano"); require("EnhancedVolcano")}
+if (!require("ggpmisc")) {install.packages("ggpmisc"); require("ggpmisc")}
+if (!require("here")) {install.packages("here"); require("here")}
+
+```
+
+
+
+
+#Load IRI Dataset from Humphreys
+
+```{r load data, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+##Load Batched Data
+Control = read.table(here("IRI dataset", "GSE139107_MouseIRI_control.dge.txt"))
+# 27133 obs of 26654 variables
+
+Control = data.matrix(Control)
+
+Control <- CreateSeuratObject(counts = Control, project = "IRI_con", min.cells = 3, min.features = 200)
+
+#Add metadata "control" to a new meta.data variable named "Condition"
+Control <- AddMetaData(object = Control, metadata = "Control", col.name = "Condition")
+
+TwelveHour = read.table(here("IRI dataset","GSE139107_MouseIRI_12hours.dge.txt"))
+# 27133 obs of 20460 variables
+
+TwelveHour = data.matrix(TwelveHour)
+
+TwelveHour <- CreateSeuratObject(counts = TwelveHour, project = "IRI_12h", min.cells = 3, min.features = 200)
+
+#Add metadata "Two" to a new meta.data variable named "Condition"
+TwelveHour <- AddMetaData(object = TwelveHour, metadata = "TwelveHour", col.name = "Condition")
+
+#Sanity Check
+Control
+# 26654 Samples with 22688 Features
+TwelveHour
+# 20447 Samples with 22112 Features
+
+IRI.combine <- merge(Control, y = TwelveHour, add.cell.ids = c("Control", "TwelveHour"), project = "IRI.combine")
+IRI.combine
+# 47420 Samples with 23653 Features
+
+head(IRI.combine[[]])
+
+rm("Control", "TwelveHour")
+
+#saveRDS(IRI.combine, here("Temp Outputs", "IRI.combine.rds"))
+
+```
+
+
+# Find Integration Pipeline developed by Annie Lackey
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, cache.lazy=TRUE, fig.align = 'center'}
+
+#IRI.combine <- readRDS("IRI.combine.rds")
+
+IRI.combine[["percent.mt"]] <- PercentageFeatureSet(IRI.combine, pattern = "^mt-")
+head(IRI.combine@meta.data)
+
+# We will visualize the dataset for quality control using 3 different metrics: 
+#   nFeature_RNA = Number of differeng genes detected in each cell
+#   nCount_RNA = Number of mRNA molecules detected in each cell
+#   percent.mt = Percent of counts that come from mitochondrial genes
+
+VlnPlot(IRI.combine, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+#From IRI Manuscript Kirita et al.
+IRI.combine <- subset(IRI.combine, subset = nCount_RNA > 150 & nCount_RNA < 8000 & percent.mt < 1)
+
+# Now we will replot the graphs to visualize the plots again with the newly filtered data
+
+VlnPlot(IRI.combine, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+IRI.combine
+
+#An object of class Seurat 
+#23371 features across 46873 samples within 1 assay 
+#Active assay: RNA (23371 features, 0 variable features)
+
+IRI.combine <- NormalizeData(IRI.combine, normalization.method = "LogNormalize", scale.factor = 10000)
+
+IRI.combine <- FindVariableFeatures(IRI.combine, selection.method = "vst", nfeatures = 2000)
+
+top10 <- head(VariableFeatures(IRI.combine), 10)
+
+plot1 <- VariableFeaturePlot(IRI.combine)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot2
+
+all.genes <- rownames(IRI.combine)
+IRI.combine <- ScaleData(IRI.combine, features = all.genes)
+
+IRI.combine <- RunPCA(IRI.combine, features = VariableFeatures(object = IRI.combine))
+
+print(IRI.combine[["pca"]], dims = 1:5, nfeatures = 5)
+
+VizDimLoadings(IRI.combine, dims = 1:2, reduction = "pca")
+
+DimPlot(IRI.combine, reduction = "pca")
+
+DimHeatmap(IRI.combine, dims = 1:2, cells = 500, balanced = TRUE)
+
+ElbowPlot(IRI.combine)
+
+IRI.combine <- FindNeighbors(IRI.combine, dims = 1:15)
+IRI.combine <- FindClusters(IRI.combine, resolution = 0.15)
+
+IRI.combine <- RunUMAP(IRI.combine, dims = 1:20)
+
+DimPlot(IRI.combine, reduction = "umap")
+
+IRI.combine.list <- SplitObject(IRI.combine, split.by = "Condition")
+
+IRI.combine.list <- lapply(X = IRI.combine.list, FUN = function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(x, verbose = FALSE)
+})
+
+features <- SelectIntegrationFeatures(object.list = IRI.combine.list)
+IRI.combine.list <- lapply(X = IRI.combine.list, FUN = function(x) {
+  x <- ScaleData(x, features = features, verbose = FALSE)
+  x <- RunPCA(x, features = features, verbose = FALSE)
+})
+
+anchors <- FindIntegrationAnchors(object.list = IRI.combine.list, reference = c(1, 2), reduction = "rpca", dims = 1:15)
+IRI.combine <- IntegrateData(anchorset = anchors, dims = 1:15)
+
+IRI.combine <- ScaleData(IRI.combine, verbose = FALSE)
+IRI.combine <- RunPCA(IRI.combine, verbose = FALSE)
+IRI.combine <- RunUMAP(IRI.combine, dims = 1:15)
+
+IRI.combine <- FindNeighbors(IRI.combine, reduction = "pca", dims = 1:15)
+IRI.combine <- FindClusters(IRI.combine, resolution = 0.1)
+
+DimPlot(IRI.combine, reduction = "umap", label = T)
+DimPlot(IRI.combine, reduction = "umap", group.by = "Condition")
+DimPlot(IRI.combine, reduction = "umap", split.by = "Condition")
+
+#saveRDS(IRI.combine, here("Outputs", "IRI.combine.integrated.rds"))
+
+```
+
+
+## IRI Cluster Synthesis and Naming
+```{r echo=TRUE, warning=FALSE, error=FALSE, results = FALSE, message=FALSE, fig.align = 'center'}
+
+#Markers from Kirita et al. Figure 1E
+
+DefaultAssay(IRI.combine) -> "RNA"
+
+markers.to.plot1 <- c("Lrp2",         # Pan PT
+                      "Slc5a12",
+                      "Slc13a3",
+                      "Slc16a9",
+                      "Epha7",        # DTL
+                      "Slc12a1",      # TAL
+                      "Slc12a3",      # Pan DCT
+                      "Slc8a1",       # DCT2
+                      "Slc5a12",      # PT-S1
+                      "Scnn1g",       # CNT
+                      "Aqp2",         # PC
+                      "Kit",          # IC-A
+                      "Slc26a4",      # IC-B
+                      "Nphs2",        # Pod
+                      "Flt1",         # EC
+                      "Pdgfrb",       # Mesenchymal
+                      "Fyb")          # Immune Macrophages
+                            
+
+
+new.cluster.ids.IRI.combine <- c("PT", "TAL", "PC", "EC", "DCT", "PT", "PT", "Mes", "IC", "Immune", "PT", "Podo")
+names(new.cluster.ids.IRI.combine) <- levels(IRI.combine)
+IRI.combine <- RenameIdents(IRI.combine, new.cluster.ids.IRI.combine)
+
+DimPlot(IRI.combine, reduction = "umap", label = TRUE, order = c("Immune", "Mes", "EC", "Podo", "IC", "PC", "DCT", "TAL", "DTL", "PT"))
+
+DimPlot(IRI.combine, reduction = "umap", label = TRUE, order = c("Immune", "Mes", "EC", "Podo", "IC", "PC", "DCT", "TAL", "DTL", "PT"), split.by = "Condition")
+
+
+#my_levels <- c("Immune", "Mes", "EC", "Podo", "IC", "PC", "DCT", "TAL", "DTL" #"PT")
+
+my_levels <- c("PT", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune")
+
+# Relevel object@ident
+Idents(IRI.combine) <- factor(Idents(IRI.combine), levels= my_levels)
+
+VlnPlot(IRI.combine, 
+        features = markers.to.plot1,
+        stack = TRUE,
+        fill.by = "ident",
+        flip = T,
+              )
+IRI.combine[["CellType"]] <- Idents(object = IRI.combine)
+
+table(Idents(IRI.combine))
+
+table(Idents(IRI.combine), IRI.combine$Condition)
+
+```
+
+# Output Files
+```{r pdf, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+saveRDS(IRI.combine, here("Outputs", "IRI_Combined_Named.rds"))
+
+#To start from here just load the RDS
+#IRI.combineNamed <- readRDS(here("Temp Outputs", "IRI.Combined_Named.rds")
+
+```
+
+# Session Info
+```{r sessioninfo, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+sessionInfo()
+```

@@ -1,0 +1,269 @@
+---
+title: "CACPR and IRI cluster Defining DEG Correlation"
+author: "Jonathan Nelson"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load new packages, echo=FALSE, warning=FALSE, error=FALSE, message=FALSE}
+
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!requireNamespace('BiocManager', quietly = TRUE)) {install.packages('BiocManager'); require("BiocManager")}
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("tidyverse")) {install.packages("tidyverse"); require("tidyverse")}
+
+if (!require("clusterProfiler")) {BiocManager::install('clusterProfiler'); require("clusterProfiler")}
+if (!require("enrichplot")) {BiocManager::install('enrichplot'); require("enrichplot")}
+
+if (!require("ggrepel")) {install.packages("ggrepel"); require("ggrepel")}
+if (!require("gghighlight")) {install.packages("gghighlight"); require("gghighlight")}
+if (!require("ggpmisc")) {install.packages("ggpmisc"); require("ggpmisc")}
+if (!require("ggupset")) {install.packages("ggupset"); require("ggupset")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("RColorBrewer")) {install.packages("RColorBrewer"); require("RColorBrewer")}
+
+if (!require("AnnotationHub")) {BiocManager::install('AnnotationHub'); require("AnnotationHub")}
+if (!require("org.Mm.eg.db")) {BiocManager::install('org.Mm.eg.db'); require("org.Mm.eg.db")}
+if (!require("stringr")) {install.packages("stringr"); require("stringr")}
+if (!require("car")) {install.packages("car"); require("car")}
+if (!require("openxlsx")) {install.packages("openxlsx"); require("openxlsx")}
+if (!require("readxl")) {install.packages("readxl"); require("readxl")}
+if (!require("data.table")) {install.packages("data.table"); require("data.table")}
+if (!require("here")) {install.packages("here"); require("here")}
+
+here()
+
+```
+
+
+# Load Data
+```{r load data, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+load(here("Outputs", "CACPR Cluster Condition DEGs.RData"))
+load(here("Outputs", "IRI Cluster Condition DEGs.RData"))
+
+```
+
+
+# DEG Markers
+```{r echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+
+CACPR_list <- list(
+  CACPRintegrated.PT, 
+  CACPRintegrated.TAL,
+  CACPRintegrated.DCT,
+  CACPRintegrated.PC, 
+  CACPRintegrated.IC,
+  CACPRintegrated.Podo,
+  CACPRintegrated.EC,
+  CACPRintegrated.Mes,
+  CACPRintegrated.Immune 
+)
+
+# Unfortunately df names don't carry over when building lists, so this step is necessary:
+
+names(CACPR_list) <- c(
+  "CACPRintegrated.PT", 
+  "CACPRintegrated.TAL",
+  "CACPRintegrated.DCT",
+  "CACPRintegrated.PC", 
+  "CACPRintegrated.IC",
+  "CACPRintegrated.Podo",
+  "CACPRintegrated.EC",
+  "CACPRintegrated.Mes",
+  "CACPRintegrated.Immune"
+)
+
+IRI_list <- list( 
+  IRIintegrated.PT, 
+  IRIintegrated.TAL,
+  IRIintegrated.DCT,
+  IRIintegrated.PC, 
+  IRIintegrated.IC,
+  IRIintegrated.Podo,
+  IRIintegrated.EC,
+  IRIintegrated.Mes,
+  IRIintegrated.Immune
+)
+  
+names(IRI_list) <- c(
+  "IRIintegrated.PT", 
+  "IRIintegrated.TAL",
+  "IRIintegrated.DCT",
+  "IRIintegrated.PC", 
+  "IRIintegrated.IC",
+  "IRIintegrated.Podo",
+  "IRIintegrated.EC",
+  "IRIintegrated.Mes",
+  "IRIintegrated.Immune"
+)
+
+
+```
+
+# Correlation between CACPR and IRI Cluster DEGs
+
+```{r echo=TRUE, error=FALSE, message=FALSE, warning=FALSE, fig.height = 4, fig.width = 5}
+
+rsq_table <- data.frame(matrix(ncol = 6, nrow = (length(CACPR_list)*length(IRI_list))))
+names(rsq_table) <- c("CACPR","IRI","R-squared", "Shared_DEGs", "CACPR_UniqueDEGs", "IRI_UniqueDEGs")
+
+## START FOR{LOOP} LEVEL 1 ##
+for(i in 1:length(CACPR_list)){
+  
+  # Do all of the x-specific steps outside of the nested loop for computational effeciency
+  
+  x.markers <- CACPR_list[[i]]
+  
+  #Making “Gene Names” as Column 1
+  x.markers_tb <- x.markers %>%
+    data.frame() %>% 
+    filter(p_val_adj < 0.05) %>%
+    as_tibble()
+  
+  ## START FOR {LOOP} LEVEL 2 ##
+  for(j in 1:length(IRI_list)){
+    y.markers <- IRI_list[[j]]
+    
+    y.markers_tb <- y.markers %>%
+      filter(p_val_adj < 0.05) %>%
+      data.frame() %>%
+      as_tibble()
+    
+    #X-Y DEGs Intersection Table
+    
+    xy.comp <- inner_join(x.markers_tb, y.markers_tb, by = "gene")
+    
+    #Set Range for Far Right Data Points
+    df.upper <- subset(xy.comp, avg_log2FC.x > -.32 & avg_log2FC.y > -.32)
+    #Set Range for Far Left Data Points
+    df.lower <- subset(xy.comp, avg_log2FC.x < 0.32 & avg_log2FC.y < .32)
+    
+    xy.comp.plot <- ggplot(xy.comp, aes(x = avg_log2FC.x, y = avg_log2FC.y, label=gene)) +
+      theme_classic() +
+      geom_point(
+        color=dplyr::case_when(
+          (xy.comp$avg_log2FC.x > 1 & xy.comp$avg_log2FC.y > 1) ~ "#1b9e77", #sets color for df.upper points
+          (xy.comp$avg_log2FC.x < -1 & xy.comp$avg_log2FC.y < -1) ~ "#d95f02", #sets color for df.lower points
+          TRUE ~ "black")) +
+      geom_text_repel(data=rbind(df.upper, df.lower),
+                      segment.sixy.compe  = 0.2, #<--!! what is this?? !!--
+                      segment.color = "grey50") +
+      geom_smooth (method=lm) +
+      labs(
+        title = paste("Correlation of Log2FC Values of DEGs from",
+                      names(CACPR_list)[i], "and",
+                      names(IRI_list)[j], sep = " "), 
+        x = paste("Average log2FC", names(CACPR_list)[i]), 
+        y = paste("Average log2FC ", names(IRI_list)[j])
+      ) +
+      stat_poly_eq(aes(label = paste(..rr.label.., sep = "~~~")),
+                   label.x.npc = "left", label.y.npc = 0.90, #set the position of the eq
+                   rr.digits = 3)
+    
+    print(xy.comp.plot)
+    
+    nrow(x.markers_tb) + nrow(y.markers_tb)
+    
+    #number of shared DEGs
+    print(paste("Number of shared DEGs between", names(CACPR_list)[i], "and", names(IRI_list)[j]))
+    print(nrow(xy.comp))
+    
+    xy.comp2 <- x.markers_tb[!x.markers_tb$gene %in% y.markers_tb$gene,]
+    xy.comp3 <- y.markers_tb[!y.markers_tb$gene %in% x.markers_tb$gene,]
+    
+    #DEGs unique to x
+    print(paste("Unique Up DEGs for", names(CACPR_list)[i]))
+    xy.comp2up = xy.comp2[order(xy.comp2[,"avg_log2FC"], decreasing = TRUE),]
+    print(head(xy.comp2up, n = 10))
+    
+    print(paste("Unique Down DEGs for", names(CACPR_list)[i]))
+    xy.comp2down = xy.comp2[order(xy.comp2[,"avg_log2FC"], decreasing = FALSE),]
+    print(head(xy.comp2down, n = 10))
+    
+    #number unique to x
+    print(paste("Number of Unique DEGs for", names(CACPR_list)[i]))
+    print(nrow(xy.comp2))
+    
+    #DEGs unique to y
+    print(paste("Unique Up DEGs for", names(IRI_list)[j]))
+    xy.comp3up = xy.comp3[order(xy.comp3[,"avg_log2FC"], decreasing = TRUE),]
+    print(head(xy.comp3up, n = 10))
+    
+    print(paste("Unique Down DEGs for", names(IRI_list)[j]))
+    xy.comp3down = xy.comp3[order(xy.comp3[,"avg_log2FC"], decreasing = FALSE),]
+    print(head(xy.comp3down, n = 10))
+    
+    #number unique to y
+    print(paste("Number of Unique DEGs for", names(IRI_list)[j]))
+    print(nrow(xy.comp3))
+    
+    xy.comp <- inner_join(x.markers_tb, y.markers_tb, by = "gene")
+    
+    xy.comp.R2 <- xy.comp %>%
+      dplyr::select(avg_log2FC.x, avg_log2FC.y)
+    
+    if (nrow(xy.comp) == 0) next 
+    
+    model <- lm(avg_log2FC.x~avg_log2FC.y, data=xy.comp.R2)
+    
+    summary(model)
+    
+    n_rsq <- summary(model)$r.squared
+    Shared_DEGs <- nrow(xy.comp)
+    CACPR_UniqueDEGs <- nrow(xy.comp2)
+    IRI_UniqueDEGs <- nrow(xy.comp3)
+    
+    
+    
+    print(
+      paste(
+        "R-squared for",
+        names(CACPR_list)[i],
+        "and",
+        names(IRI_list)[j],
+        "=",
+        n_rsq,
+        sep=" "
+      )
+    )
+    ## add to r-quared table
+    index <- ((i-1)*length(IRI_list))+j
+    rsq_table[index,1] = names(CACPR_list)[i]
+    rsq_table[index,2] = names(IRI_list)[j]
+    rsq_table[index,3] = n_rsq
+    rsq_table[index,4] = Shared_DEGs
+    rsq_table[index,5] = CACPR_UniqueDEGs
+    rsq_table[index,6] = IRI_UniqueDEGs
+    
+  }
+}
+
+rsq_table
+
+write.csv(rsq_table, here("Outputs", "R2_for_IRI_Vs_CACPR_Condition_DEGs.csv"))
+
+```
+
+## Session Info
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+sessionInfo()
+```
+
+
+  

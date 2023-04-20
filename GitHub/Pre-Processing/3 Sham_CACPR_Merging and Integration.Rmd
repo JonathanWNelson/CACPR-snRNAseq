@@ -1,0 +1,269 @@
+---
+title: "Sham and CACPR Dataset Integration"
+author: "Jonathan Nelson"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+```{r load new packages, echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!requireNamespace('BiocManager', quietly = TRUE)) {install.packages('BiocManager'); require("BiocManager")}
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("stringr")) {install.packages("stringr"); require("stringr")}
+if (!require("Seurat")) {install.packages("Seurat"); require("Seurat")}
+if (!require("sctransform")) {install.packages("sctransform"); require("sctransform")}
+if (!require("glmGamPoi")) {BiocManager::install('glmGamPoi'); require("glmGamPoi")}
+if (!require("patchwork")) {install.packages("patchwork"); require("patchwork")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("EnhancedVolcano")) {BiocManager::install('EnhancedVolcano'); require("EnhancedVolcano")}
+if (!require("DESeq2")) {BiocManager::install('DESeq2'); require("DESeq2")}
+if (!require("tidyverse")) {install.packages("tidyverse"); require("tidyverse")}
+if (!require("RColorBrewer")) {install.packages("RColorBrewer"); require("RColorBrewer")}
+if (!require("car")) {install.packages("car"); require("car")}
+if (!require("openxlsx")) {install.packages("openxlsx"); require("openxlsx")}
+if (!require("readxl")) {install.packages("readxl"); require("readxl")}
+if (!require("ggrepel")) {install.packages("ggrepel"); require("ggrepel")}
+if (!require("gghighlight")) {install.packages("gghighlight"); require("gghighlight")}
+if (!require("ggpmisc")) {install.packages("ggpmisc"); require("ggpmisc")}
+if (!require("data.table")) {install.packages("data.table"); require("data.table")}
+if (!require("here")) {install.packages("here"); require("here")}
+
+here::here()
+
+```
+
+# Loading Filtered Seurat Object
+These files are post-DoubletFinder.
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+Sham <- readRDS(here("Outputs", "Sham.rds"))
+CACPR <- readRDS(here("Outputs", "CACPR.rds"))
+
+
+
+```
+
+# Nuclei Entering the Analysis Pipeline
+The following shows the number of nuclei post-QC and post-DoubletFinder. Numbers in `# (10X Count)` are the starting numbers for reference.  
+Values appear in the Environment when running the `rmd`.
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+Sham.nuclei <- nrow(Sham@meta.data) # 7806 (10X Count)
+Sham.nuclei
+CACPR.nuclei <- nrow(CACPR@meta.data) # 6332 (10X Count)
+CACPR.nuclei
+
+```
+
+# Merging Replicates
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+CACPR_Combined <- merge(Sham, y = CACPR, add.cell.ids = c("Sham", "CACPR"), project = "CACPR")
+
+#saveRDS(CACPR_Combined, file = here("Outputs", "CACPR_Combined.rds"))
+
+#To start from this point just reload RDS
+#CACPR_Combined <- readRDS("Outputs", "CACPR_Combined.rds")
+```
+
+### Sanity Check
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+
+head(colnames(CACPR_Combined))
+tail(colnames(CACPR_Combined))
+unique(sapply(X = strsplit(colnames(CACPR_Combined), split = "_"), FUN = "[", 1))
+table(CACPR_Combined$orig.ident)
+head(CACPR_Combined@meta.data)
+
+#To save RAM
+rm(Sham, CACPR)
+```
+
+## Data Filtering and Integration
+```{r echo=TRUE, warning=FALSE, error=FALSE, results = FALSE, message=FALSE, fig.align = 'center'}
+
+CACPR_Combined
+
+head(CACPR_Combined@meta.data)
+
+VlnPlot(CACPR_Combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident")
+
+VlnPlot(CACPR_Combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "Condition")
+
+CACPR_Combined <- subset(CACPR_Combined, subset = nFeature_RNA < 5000 & nCount_RNA < 10000)
+
+VlnPlot(CACPR_Combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident")
+
+VlnPlot(CACPR_Combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "Condition")
+
+CACPR_Combined
+
+CACPR_Combined <- NormalizeData(CACPR_Combined, normalization.method = "LogNormalize", scale.factor = 10000)
+
+CACPR_Combined <- FindVariableFeatures(CACPR_Combined, selection.method = "vst", nfeatures = 2000)
+
+top10 <- head(VariableFeatures(CACPR_Combined), 10)
+
+plot1 <- VariableFeaturePlot(CACPR_Combined)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot2
+
+all.genes <- rownames(CACPR_Combined)
+CACPR_Combined <- ScaleData(CACPR_Combined, features = all.genes)
+
+CACPR_Combined <- RunPCA(CACPR_Combined, features = VariableFeatures(object = CACPR_Combined))
+
+print(CACPR_Combined[["pca"]], dims = 1:5, nfeatures = 5)
+
+VizDimLoadings(CACPR_Combined, dims = 1:2, reduction = "pca")
+
+DimPlot(CACPR_Combined, reduction = "pca")
+
+DimHeatmap(CACPR_Combined, dims = 1:2, cells = 500, balanced = TRUE)
+
+ElbowPlot(CACPR_Combined)
+
+CACPR_Combined <- FindNeighbors(CACPR_Combined, dims = 1:15)
+CACPR_Combined <- FindClusters(CACPR_Combined, resolution = 0.15)
+
+CACPR_Combined <- RunUMAP(CACPR_Combined, dims = 1:20)
+
+DimPlot(CACPR_Combined, reduction = "umap")
+DimPlot(CACPR_Combined, reduction = "umap", group.by = "Condition")
+
+CACPR_Combined.list <- SplitObject(CACPR_Combined, split.by = "Condition")
+
+CACPR_Combined.list <- lapply(X = CACPR_Combined.list, FUN = function(x) {
+  x <- NormalizeData(x, verbose = FALSE)
+  x <- FindVariableFeatures(x, verbose = FALSE)
+})
+
+features <- SelectIntegrationFeatures(object.list = CACPR_Combined.list)
+CACPR_Combined.list <- lapply(X = CACPR_Combined.list, FUN = function(x) {
+  x <- ScaleData(x, features = features, verbose = FALSE)
+  x <- RunPCA(x, features = features, verbose = FALSE)
+})
+
+anchors <- FindIntegrationAnchors(object.list = CACPR_Combined.list, reference = c(1, 2), reduction = "rpca", dims = 1:15)
+CACPR_Combined <- IntegrateData(anchorset = anchors, dims = 1:15)
+
+CACPR_Combined <- ScaleData(CACPR_Combined, verbose = FALSE)
+CACPR_Combined <- RunPCA(CACPR_Combined, verbose = FALSE)
+CACPR_Combined <- RunUMAP(CACPR_Combined, dims = 1:15)
+
+CACPR_Combined <- FindNeighbors(CACPR_Combined, reduction = "pca", dims = 1:15)
+CACPR_Combined <- FindClusters(CACPR_Combined, resolution = 0.15)
+
+DimPlot(CACPR_Combined, reduction = "umap", label = T)
+DimPlot(CACPR_Combined, reduction = "umap", group.by = "Condition")
+DimPlot(CACPR_Combined, reduction = "umap", split.by = "Condition")
+
+table(Idents(CACPR_Combined))
+
+table(Idents(CACPR_Combined), CACPR_Combined$Condition)
+
+DefaultAssay(CACPR_Combined) <- "RNA"
+
+FeaturePlot(CACPR_Combined, "Havcr1", split.by = "Condition")
+
+```
+
+## Cluster Synthesis and Naming
+```{r echo=TRUE, warning=FALSE, error=FALSE, results = FALSE, message=FALSE, fig.align = 'center'}
+
+VlnPlot(CACPR_Combined, "nFeature_RNA")
+Cluster8 <- FindMarkers(CACPR_Combined, ident.1 = "8")
+
+#Markers from Kirita et al. Figure 1E
+
+markers.to.plot1 <- c("Lrp2",         # Pan PT
+                      "Slc5a12",
+                      "Slc13a3",
+                      "Slc16a9",
+                      "Epha7",        # DTL
+                      "Akap12",       # DTL
+                      "Slc12a1",      # TAL
+                      "Slc12a3",      # Pan DCT
+                      "Slc8a1",       # DCT2
+                      "Slc5a12",      # PT-S1
+                      "Scnn1g",       # CNT
+                      "Aqp2",         # PC
+                      "Kit",          # IC-A
+                      "Slc26a4",      # IC-B
+                      "Nphs2",        # Pod
+                      "Flt1",         # EC
+                      "Pdgfrb",       # Mesenchymal
+                      "Fyb")          # Immune Macrophages
+                            
+VlnPlot(CACPR_Combined, 
+        features = markers.to.plot1,
+        stack = TRUE,
+        fill.by = "ident",
+        flip = T,
+              )
+
+new.cluster.ids.CACPR_Combined <- c("EC", "TAL", "PT", "PT", "Mes", "DCT", "PT", "PC", "PT", "DTL", "IC", "Immune", "Podo", "PT")
+names(new.cluster.ids.CACPR_Combined) <- levels(CACPR_Combined)
+CACPR_Combined <- RenameIdents(CACPR_Combined, new.cluster.ids.CACPR_Combined)
+
+#Re-level and set active idents
+my_levels <- c("PT", "DTL", "TAL", "DCT", "PC", "IC", "Podo", "EC", "Mes", "Immune")
+Idents(CACPR_Combined) <- factor(Idents(CACPR_Combined), levels= my_levels)
+
+CACPR_Combined[["CellType"]] <- Idents(object = CACPR_Combined)
+
+#Re-level Sham and CACPR
+my_levels <- c("Sham", "CACPR")
+CACPR_Combined@meta.data$Condition <- factor(CACPR_Combined@meta.data$Condition, levels= my_levels)
+
+VlnPlot(CACPR_Combined, 
+        features = markers.to.plot1,
+        stack = TRUE,
+        fill.by = "ident",
+        flip = T,
+              )
+
+DimPlot(CACPR_Combined, reduction = "umap", label = TRUE)
+
+DimPlot(CACPR_Combined, reduction = "umap", label = TRUE, split.by = "Condition")
+
+table(Idents(CACPR_Combined))
+
+table(Idents(CACPR_Combined), CACPR_Combined$Condition)
+
+#saveRDS(CACPR_Combined, here("Temp Outputs", "CACPR_Combined_Named.rds"))
+
+#To start from here just load the RDS
+#CACPR_CombinedNamed <- readRDS(here("Temp Outputs", "CACPR_Combined_Named.rds")
+
+FeaturePlot(CACPR_Combined, "Havcr1", split.by = "Condition")
+
+```
+
+# Output Files
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+saveRDS(CACPR_Combined, here("Outputs", "CACPR_Combined_Named.rds"))
+
+#To start from here just load the RDS
+#CACPR_Combined <- readRDS(here("Outputs", "CACPR_Combined_Named.rds"))
+
+```
+
+# Session Info
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+sessionInfo()
+```

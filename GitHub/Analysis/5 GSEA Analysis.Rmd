@@ -1,0 +1,249 @@
+---
+title: "GSEA Analysis"
+author: "Jonathan Nelson"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load new packages, echo=FALSE, warning=FALSE, error=FALSE, message=FALSE}
+
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!requireNamespace('BiocManager', quietly = TRUE)) {install.packages('BiocManager'); require("BiocManager")}
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("tidyverse")) {install.packages("tidyverse"); require("tidyverse")}
+
+if (!require("clusterProfiler")) {BiocManager::install('clusterProfiler'); require("clusterProfiler")}
+if (!require("enrichplot")) {BiocManager::install('enrichplot'); require("enrichplot")}
+
+if (!require("ggrepel")) {install.packages("ggrepel"); require("ggrepel")}
+if (!require("gghighlight")) {install.packages("gghighlight"); require("gghighlight")}
+if (!require("ggpmisc")) {install.packages("ggpmisc"); require("ggpmisc")}
+if (!require("ggupset")) {install.packages("ggupset"); require("ggupset")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("RColorBrewer")) {install.packages("RColorBrewer"); require("RColorBrewer")}
+
+if (!require("AnnotationHub")) {BiocManager::install('AnnotationHub'); require("AnnotationHub")}
+if (!require("org.Mm.eg.db")) {BiocManager::install('org.Mm.eg.db'); require("org.Mm.eg.db")}
+if (!require("stringr")) {install.packages("stringr"); require("stringr")}
+if (!require("car")) {install.packages("car"); require("car")}
+if (!require("openxlsx")) {install.packages("openxlsx"); require("openxlsx")}
+if (!require("readxl")) {install.packages("readxl"); require("readxl")}
+if (!require("data.table")) {install.packages("data.table"); require("data.table")}
+if (!require("here")) {install.packages("here"); require("here")}
+
+#BiocManager::install("pathview")
+#BiocManager::install("enrichplot")
+library(clusterProfiler)
+library(enrichplot)
+# we use ggplot2 to add x axis labels (ex: ridgeplot)
+library(ggplot2)
+
+here()
+
+```
+
+
+# Load Data
+```{r load data, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+
+load(here("Outputs", "CACPR Cluster Condition DEGs.Rdata"))
+load(here("Outputs", "IRI Cluster Condition DEGs.Rdata"))
+
+```
+
+
+# DEG Markers
+
+```{r echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+
+IRI_list <- list(
+  CACPRintegrated.PT,
+  IRIintegrated.PT
+  )
+
+# Unfortunately df names don't carry over when building lists, so this step is necessary:
+
+names(IRI_list) <- c(
+  "CACPRintegrated.PT",
+  "IRIintegrated.PT" 
+  )
+
+```
+
+# Enrichment Analysis using ClusterProfiler with Condition DEG Markers
+```{r echo=TRUE, error=FALSE, message=FALSE, warning=FALSE, fig.height = 10, fig.width = 9}
+
+for(i in 1:length(IRI_list)){
+  
+markers <- IRI_list[[i]]
+#markers_b <- IRI_list[[i]]
+
+head(markers, n = 50)
+
+#markers <- markers %>% rownames_to_column(var="SYMBOL")
+
+markers <- markers %>% rename(SYMBOL = gene)
+
+head(markers, n = 50)
+
+ENTREZ_list <- bitr(geneID = markers$SYMBOL,  #input gene id
+                    fromType = "SYMBOL",           #input id type
+                    toType = "ENTREZID",           #output id type
+                    OrgDb = "org.Mm.eg.db"         #annotation Db
+                    )
+
+markers <-  ENTREZ_list %>% inner_join(markers, by = "SYMBOL")
+
+# Removing genes that are not statistically significant. 
+markers <-  markers %>% dplyr::filter(p_val_adj < 0.05)
+head(markers, n = 50)
+
+markers <-  markers %>%  arrange(desc(avg_log2FC))
+
+markers.ENTREZID <- markers %>%
+  dplyr::select(ENTREZID, avg_log2FC) %>%
+  column_to_rownames(var = "ENTREZID")
+
+geneList <- markers.ENTREZID$avg_log2FC
+names(geneList) <- rownames(markers.ENTREZID)
+
+gse.go <- gseGO(geneList = geneList,                  #order ranked geneList
+                       OrgDb = "org.Mm.eg.db",    
+                       ont = "all",
+                       by = "fgsea",                  #fgsea or DOSE
+                       )  
+gse.go
+
+
+if(is_empty(gse.go@result$ONTOLOGY)) {next}
+
+p1 <- dotplot(gse.go, showCategory=10, split=".sign") + facet_grid(.~.sign) + labs(title = paste(names(IRI_list)[i], "Upregulated Pathways")) +        
+        theme(plot.title = element_text(hjust = 0.5))
+
+print (p1)
+
+p2 <- ridgeplot(gse.go) + labs(title = paste(names(IRI_list)[i], "Enrichment Distribution"))
+
+print (p2)
+
+# Use the `Gene Set` param for the index in the title, and as the value for geneSetId
+
+#gseaplot(gse.go, by = "all", title = gse.go$Description[1], geneSetID = 1)
+
+gse.go.list <- data.frame(
+  GO_term = gse.go$ID, 
+  GO_Description = gse.go$Description,
+  Ontology = gse.go@result$ONTOLOGY,
+  NES = gse.go$NES,
+  P.adjust = gse.go$p.adjust,
+  Rank = gse.go$rank)
+
+assign(paste("GSEA", names(IRI_list)[i], sep = "_"), gse.go.list , envir = globalenv())
+
+assign(paste("rawGSEA", names(IRI_list)[i], sep = "_"), gse.go , envir = globalenv())
+
+}
+
+```
+
+# Print and Save Pathways Lists
+```{r echo=TRUE, error=FALSE, message=FALSE, warning=FALSE, fig.height = 13, fig.width = 9}
+
+GSEA_IRIintegrated.PT
+GSEA_CACPRintegrated.PT
+rawGSEA_IRIintegrated.PT
+rawGSEA_CACPRintegrated.PT
+
+# Save multiple objects
+save(GSEA_IRIintegrated.PT,
+GSEA_CACPRintegrated.PT,
+rawGSEA_IRIintegrated.PT,
+rawGSEA_CACPRintegrated.PT,
+file = here("Outputs", "PT_GSEA.RData"))
+
+
+```
+
+#Hutchens Workflow
+```{r eval=FALSE, error=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+
+GO_list <- list(
+  GSEA_IRIintegrated.PT,
+  GSEA_CACPRintegrated.PT
+)
+
+# Unfortunately df names don't carry over when building lists, so this step is necessary:
+
+names(GO_list) <- c(
+  "GSEA_IRIintegrated.PT",
+  "GSEA_CACPRintegrated.PT"
+ )
+
+for(i in 1:length(GO_list)){
+  GOs <- GO_list[[i]]
+ assign(paste("GOsZ", names(GO_list)[i], sep = "_"), GOs , envir = globalenv())
+}
+
+
+GSEAgos_common<-inner_join(GOsZ_GSEA_CACPRintegrated.PT,GOsZ_GSEA_IRIintegrated.PT,by="GO_term",suffix=c("_CACPR","_IRI"),keep=FALSE)
+GSEAgos_IRI_only<-anti_join(GOsZ_GSEA_CACPRintegrated.PT,GOsZ_GSEA_IRIintegrated.PT,by="GO_term")
+GSEAgos_CACPR_only<-anti_join(GOsZ_GSEA_IRIintegrated.PT,GOsZ_GSEA_CACPRintegrated.PT,by="GO_term")
+
+GSEAgos_common
+#125
+GSEAgos_IRI_only
+#484
+GSEAgos_CACPR_only
+#46
+
+head(GSEAgos_common$GO_term)
+head(GSEAgos_IRI_only$GO_term)
+head(GSEAgos_CACPR_only$GO_term)
+
+ggplot(GSEAgos_common, aes(x = NES_CACPR, y = NES_IRI)) +
+    geom_point()
+
+```
+## Session Info
+
+```{r, echo=TRUE, warning=FALSE, error=FALSE, message=FALSE}
+sessionInfo()
+```
+
+```{r eval=FALSE, error=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+load(here("Outputs", "PT_GSEA.RData"))
+
+p1 <- dotplot(rawGSEA_CACPRintegrated.PT, showCategory=10) + labs("Upregulated Pathways") +        
+        theme(plot.title = element_text(hjust = 0.5))
+
+print (p1)
+
+p2 <- dotplot(rawGSEA_IRIintegrated.PT, showCategory=10) + labs("Upregulated Pathways") +        
+        theme(plot.title = element_text(hjust = 0.5))
+
+print (p2)
+
+
+
+
+```
+
+
+
+
+  

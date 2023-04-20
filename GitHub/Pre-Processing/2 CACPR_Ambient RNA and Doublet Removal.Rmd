@@ -1,0 +1,249 @@
+---
+title: "CACPR Ambient RNA and Doublet Removal"
+author: "Jonathan Nelson"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+    number_sections: yes
+    theme: bootstrap
+    df_print: paged
+    code_folding: hide
+    highlight: pygments
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+```{r echo=T, error=FALSE, message=FALSE, warning=FALSE}
+
+if (!require("Seurat")) {install.packages("Seurat"); require("Seurat")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("tidyverse")) {install.packages("tidyverse"); require("tidyverse")}
+if (!require("SoupX")) {install.packages("SoupX"); require("SoupX")}
+if (!require("DoubletFinder")) {BiocManager::install('DoubletFinder'); require("DoubletFinder")}
+if (!require("here")) {install.packages("here"); require("here")}
+#if (!require("remotes")) {install.packages("remotes"); require("remotes")}
+
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
+
+#Sanity check where here is located
+here::here()
+
+```
+
+# SoupX for Ambient RNA Removal
+[(Young and Behjati, 2020)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7763177/)
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+# Load data and estimate soup profile
+tod = Seurat::Read10X(here("GEO", "Cell Ranger", "CACPR", "raw_feature_bc_matrix")) #Change
+toc = Seurat::Read10X(here("GEO", "Cell Ranger", "CACPR", "filtered_feature_bc_matrix")) #Change 
+sc = SoupChannel(tod,toc)
+
+#Make the Seurat object from the filtered control data
+SO <- Seurat::Read10X(here("GEO", "Cell Ranger", "CACPR", "filtered_feature_bc_matrix")) #Change
+SO <- CreateSeuratObject(counts = SO, project = "CACPR")  #Change
+ 
+#Cluster the cells with Seurat
+SO <- SCTransform(SO, verbose = F)
+SO <- RunPCA(SO, verbose = F)
+SO <- RunUMAP(SO, dims = 1:30, verbose = F)
+SO <- FindNeighbors(SO, dims = 1:30, verbose = F)
+SO <- FindClusters(SO, verbose = T)
+ 
+meta <- SO@meta.data
+umap <- SO@reductions$umap@cell.embeddings
+clusters <- setNames(meta$seurat_clusters, rownames(meta))
+
+#Sanity Check
+length(clusters) #should be equal to nrow(sc$metaData)
+nrow(sc$metaData)
+
+sc <- setClusters(sc, clusters)
+sc <- setDR(sc, umap)
+
+#Estimate rho
+sc = autoEstCont(sc)
+
+#Clean the data
+SO_out = adjustCounts(sc)
+ 
+#Create a new Seurat Object out of the cleaned data
+seurat.obj <- CreateSeuratObject(SO_out)
+```
+
+# Pre-process for Doublet Finder
+[(McGinnis et al., 2019)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6853612/)
+```{r echo=TRUE, error=FALSE, fig.align= 'center', message=FALSE, warning=FALSE}
+
+seurat.obj
+
+seurat.obj[["percent.mt"]] <- PercentageFeatureSet(seurat.obj, pattern = "^mt-")
+
+VlnPlot(seurat.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+#Set lower filter to get rid of low count nuclei from Cell Ranger over-estimate
+seurat.obj.f <- subset(seurat.obj, subset = nFeature_RNA > 700)
+
+VlnPlot(seurat.obj.f, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+seurat.obj.f
+
+# Pre-process standard workflow
+seurat.obj.f <- NormalizeData(object = seurat.obj.f)
+seurat.obj.f <- FindVariableFeatures(object = seurat.obj.f)
+seurat.obj.f <- ScaleData(object = seurat.obj.f)
+seurat.obj.f <- RunPCA(object = seurat.obj.f)
+ElbowPlot(seurat.obj.f, ndims = 40)
+
+# PCs between 15-20
+seurat.obj.f <- FindNeighbors(object = seurat.obj.f, dims = 1:30)
+seurat.obj.f <- FindClusters(object = seurat.obj.f, resolution = 0.03)
+seurat.obj.f <- RunUMAP(object = seurat.obj.f, dims = 1:30)
+DimPlot(seurat.obj.f, reduction = "umap")
+
+```
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', results=F}
+
+# Calculate each combination of pN and pK
+sweep.res.list_seurat.obj.f <- paramSweep_v3(seurat.obj.f, PCs = 1:20, sct = FALSE) 
+```
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+#Summarize each combination of pN and pK
+sweep.stats_seurat.obj.f <- summarizeSweep(sweep.res.list_seurat.obj.f, GT = FALSE) 
+
+#Select the pK that corresponds to max bcmvn to optimize doublet detection
+bcmvn_seurat.obj.f <- find.pK(sweep.stats_seurat.obj.f)
+pK <- bcmvn_seurat.obj.f %>% 
+  filter(BCmetric == max(BCmetric)) %>%
+  dplyr::select(pK) 
+
+#See pK in the Values Environment
+pK <- as.numeric(as.character(pK[[1]]))
+
+```
+
+
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+# Homotypic Doublet Proportion Estimate -------------------------------------------------------------------------------------
+annotations <- seurat.obj.f@meta.data$seurat_clusters  
+
+homotypic.prop <- modelHomotypic(annotations)           
+homotypic.prop
+
+seurat.obj.f
+
+# 10X Multiplet Rate Table https://kb.10xgenomics.com/hc/en-us/articles/360001378811-What-is-the-maximum-number-of-cells-that-can-be-profiled-
+#Sham - 6618 cells = 5.6%
+
+nExp_poi <- round(0.056*nrow(seurat.obj.f@meta.data)) #Change
+nExp_poi
+nExp_poi_adj <- round(nExp_poi*(1-homotypic.prop))
+
+```
+
+# Doublet Finder
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+seurat.obj.f_doublets <- doubletFinder_v3(seurat.obj.f,
+                        PCs = 1:20,
+                        pN = 0.25,
+                        pK = pK,
+                        nExp = nExp_poi_adj,
+                        reuse.pANN = FALSE, sct = FALSE)
+colnames(seurat.obj.f_doublets@meta.data)[7] <- "pANN"
+colnames(seurat.obj.f_doublets@meta.data)[8] <- "DF.class"
+head(seurat.obj.f_doublets@meta.data)
+table(seurat.obj.f_doublets@meta.data$DF.class)
+
+DimPlot(seurat.obj.f_doublets, group.by = "DF.class")
+
+VlnPlot(seurat.obj.f_doublets, "nFeature_RNA", group.by = "DF.class")
+
+VlnPlot(seurat.obj.f_doublets, "nCount_RNA", group.by = "DF.class")
+
+```
+
+
+# Subset singlets
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+seurat.obj.f_singlets <- subset(seurat.obj.f_doublets, DF.class == "Singlet")
+seurat.obj.f_singlets
+DimPlot(seurat.obj.f_singlets, reduction = "umap")
+```
+
+# Add Meta data
+```{r echo=TRUE, error=FALSE, fig.align= 'center', message=FALSE, warning=FALSE}
+# Create Seurat object and add metadata
+seurat.obj.f_singlets <- AddMetaData(object = seurat.obj.f_singlets, metadata = "CACPR", col.name = "Condition") #Change
+seurat.obj.f_singlets[["percent.mt"]] <- PercentageFeatureSet(seurat.obj.f_singlets, pattern = "^mt-")
+
+head(seurat.obj.f_singlets@meta.data)
+
+```
+
+# Remove Mitochondrial Genes
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+seurat.obj.f_singlets <- seurat.obj.f_singlets[!grepl("^mt-", rownames(seurat.obj.f_singlets)), ]
+
+#Mito Sanity Check
+counts <- GetAssayData(seurat.obj.f_singlets, assay = "RNA")
+mito.genes <- grep(pattern = "^mt-", x = rownames(x = counts), value = TRUE) 
+mito.genes #should be zero
+
+DimPlot(seurat.obj.f_singlets, reduction = "umap", label = T)
+
+```
+
+# Initial Cluster Identification
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center', fig.width = 7, fig.height= 8}
+
+seurat.obj.f_singlets.markers <- FindAllMarkers(seurat.obj.f_singlets, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+seurat.obj.f_singlets.markers %>%
+    group_by(cluster) %>%
+    top_n(n = 5, wt = avg_log2FC) -> top5
+
+DoHeatmap(seurat.obj.f_singlets, features = top5$gene) + NoLegend()
+
+seurat.obj.f_singlets.markers %>%
+    group_by(cluster) %>%
+    top_n(n = 2, wt = avg_log2FC) -> top2
+
+VlnPlot(seurat.obj.f_singlets, 
+        features = unique(top2$gene),
+        stack = TRUE, 
+        flip = TRUE,
+        pt.size = 0)+
+        NoLegend()
+
+```
+
+# Initial Cluster Identification with DotPlot
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+DotPlot(seurat.obj.f_singlets, features = unique(top2$gene), dot.scale = 8, cols = c("dodgerblue2", "coral2")) + RotatedAxis()
+
+```
+
+# Output Files
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+saveRDS(seurat.obj.f_singlets, here("Outputs", "CACPR.rds")) #Change
+```
+
+# Session Info
+```{r echo=TRUE, warning=FALSE, error=FALSE, message=FALSE, fig.align = 'center'}
+
+sessionInfo()
+```
