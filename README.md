@@ -1,12 +1,16 @@
 # Instructions for Running CACPR snRNAseq Analysis
 Jonathan Nelson
-4.20.23
+4.21.23
 
 Step 1: Download folders and files from GitHub as a zip folder and place it on your computer (perhaps desktop?)
 
-Step 2: Close R studio (if open) and then open the "Setup" RMD file and run each chunk in order to 1) create a .here file and 2) create file architecture
+Step 2: Close R studio (if open) and then open the "Setup" RMD file and run each chunk in order to 1) create a .here file and 2) create file architecture below
 
-**The code uses the package "here" (https://github.com/jennybc/here_here) in order to identify relative file locations. It is critical that when you run the "here()" code in the console that it returns back the location of the "main" folder. For instance, if you place the main folder on your desktop, the here() command should return -> 
+	**Note** The code uses the package "here" (https://github.com/jennybc/here_here) in order to identify relative file locations. 
+	It is critical that when you run the "here()" code in the console that it returns back the location of the "main" folder. 
+
+	For instance, if you place the main folder on your desktop, the here() command should return: 
+	[1] "C:/Users/jonat/OneDrive/Desktop/CACPR-snRNAseq-main"
 
 * Main/
   * GitHub/
@@ -75,7 +79,7 @@ Step 5: Make sure that you have all packages installed nesseseary for running th
 
 Step 6: Start by running the RMD files in the Main/GitHub/Pre-process folder in order from 1-4.
 
-	Note: Outputs from the analysis will appear in ../Outputs folder 
+	**Note** Outputs from the analysis will appear in ../Outputs folder 
 
 Step 7: Run analysis RMD files 1-5
 
