@@ -6,6 +6,8 @@ Step 1: Download folders and files from GitHub as a zip folder and place it on y
 
 Step 2: Close R studio (if open) and then open the "Setup" RMD file and run each chunk in order to 1) create a .here file and 2) create file architecture
 
+**The code uses the package "here" (https://github.com/jennybc/here_here) in order to identify relative file locations. It is critical that when you run the "here()" code in the console that it returns back the location of the "main" folder. For instance, if you place the main folder on your desktop, the here() command should return -> 
+
 * Main/
   * GitHub/
      * Pre-processing
